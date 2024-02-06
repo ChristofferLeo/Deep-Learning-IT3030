@@ -8,26 +8,38 @@ class NeuralNetwork:
         self.softMaxLayer = softMaxLayer
         self.batchSize = batchSize
 
-        self.layers = [Layer(numberOfNeurons) for i in range(numerOfLayers)]
+        self.layers = [Layer(numberOfNeurons, numberOfNeurons, batchSize) for i in range(numerOfLayers)]
 
     
     #Softmax function (optinal for the last layer)
     def softMax(self, input):
         return np.exp(input) / np.sum(np.exp(input), axis=0)
     
-    def derivativeSoftMax(self, input): # TODO: Check if this is correct
-        return np.exp(input) / np.sum(np.exp(input), axis=0) * (1 - np.exp(input) / np.sum(np.exp(input), axis=0))
-    
+    def d_SoftMax(self, input): 
+        # Making jacobian for each batch
+        numClass, numBatch = input.shape
+
+        J = np.zeros((numBatch, numClass, numClass))
+        
+        # Compute the jacobian for each batch
+        for b in range(numBatch):
+            #SoftMax out out for b -batch
+            S = input[:, b]
+            diagonal = np.diag(S)
+            J_batch_i = diagonal - np.outer(S, S)
+
+            #Adds to the jacobian matrix
+            J[b, :, :] = J_batch_i
+
+        return J
 
     #Cross entropy loss function
     def lossFunction(self, input, target):
         # TODO: Do i need to clip???
         input = self.clipNumbers(input)
-
-        #Finding loss TODO: Save loss for each neuvron and batch?
-        loss = []
-        for i in range(input.shape[0]):
-            loss.append(-np.sum(np.log(input[i]) * target[i] + (1 - target[i]) * np.log(1 - input[i]) / input.shape[0]))
+        
+        #Finding loss for each batch
+        loss = -np.sum(np.log(input) * input + (1 - target) * np.log(1 - input), axis=1) / len(input[0])
        
         return loss
     
@@ -35,7 +47,7 @@ class NeuralNetwork:
     #Clipping numbers (to avoid NaN in loss function)
     def clipNumbers(self, input):
         epsilon = 1e-15
-        return np.clip(input[0], epsilon, 1 - epsilon)
+        return np.clip(input, epsilon, 1 - epsilon)
 
 
     # -----  Main functions of the network -----
@@ -50,9 +62,9 @@ class NeuralNetwork:
         if self.softMaxLayer:
             input = self.softMax(input)
             self.SoftmaxCache = input
-    
-        #Applying lost function TODO: Check transpose
-        loss = self.lossFunction(input.T, target)
+
+        #Applying lost function 
+        loss = self.lossFunction(input.T, target.T)
 
         return loss
 
@@ -62,35 +74,35 @@ class NeuralNetwork:
         if(self.softMaxLayer):
             #Jacobian L -> S
             J_LS = self.SoftmaxCache - target
-        
+            J_LS = J_LS.T
+          
             #Jacobian S -> N
-            sizeMatrix = len(self.SoftmaxCache)
-            J_SN = np.zeros((self.batchSize, sizeMatrix, sizeMatrix))
-
-            for b in range(self.batchSize):
-                J_SN = -np.outer(self.SoftmaxCache[b], self.SoftmaxCache[b])
-                np.fill_diagonal(J_SN, self.SoftmaxCache[b] * (1 - self.SoftmaxCache[0]))
-
+            J_SN = self.d_SoftMax(self.SoftmaxCache)
 
             #Jacobian L -> N
-            J_LN = np.array([np.dot(J_LS, J_SN[i]) for i in range(len(J_LS))]) 
+            J_LN = np.array([np.dot(J_LS[i].T, J_SN[i]) for i in range(len(J_SN))])
 
+            print(J_LN)
+      
             #Backwarding through layer-objects
             for layer in reversed(self.layers):
-                J_LN = layer.backWard(J_LN, self.batchSize)
+                J_LN = layer.backWard(J_LN)
         
         #If no softmax layer 
         else:
+            lastLayer = self.layers[-1]
+
             #Jacobian L -> N
-            J_LN = self.layer[0].activationFunction(self.layers[-1]) - target #TODO: Check if this is correct
+            J_LN = (lastLayer.output.T - target)
+            J_LN *= lastLayer.dF_act(lastLayer.output).T
+            J_LN = J_LN.T
 
             #Backwarding through layer-objects
             for layer in reversed(self.layers):
-                J_LN = layer.backWard(J_LN, learningRate)
-        
+                J_LN = layer.backWard(J_LN)
 
         # Updating weight and biases
         for layer in self.layers:
-            layer.W -= learningRate * layer.J_LW
-            layer.B -= learningRate * layer.J_LB
+            layer.W -= learningRate * layer.J_W
+            layer.B -= learningRate * layer.J_B
 
