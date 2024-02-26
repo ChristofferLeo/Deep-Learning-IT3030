@@ -14,6 +14,7 @@ class Visualizer:
         num_images = len(images)
         imageSize = int(np.sqrt(images.shape[1]))
 
+        
         print(labels)
         
         # Determine the grid size for subplots
@@ -51,6 +52,6 @@ class Visualizer:
         plt.xlabel("Batch")
         plt.ylabel("Loss")
         plt.legend()
-        #plt.show()
+        plt.show()
             
 

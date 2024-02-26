@@ -128,8 +128,10 @@ class NeuralNetwork:
 
         #Calculating loss       
         loss = self.Loss(input, target)
+
+
     
-        return loss
+        return loss, input
 
     #Backward pass of a batch
     def backward(self, learningRate, target):

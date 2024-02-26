@@ -6,13 +6,12 @@ import numpy as np
 
 class ChrisBrain:
     # Needs on the format (numLayers, [numNeurons], [actFunc], [weightInit],lossFunc, (regulizer, regRate), softmax, batchSize)
-    def __init__(self, filePath):
+    def __init__(self, filePath, verboseFlag):
         #Extracting info from file
         info = self.initFile(filePath)
 
         #Image size
         self.size = info[1][0]
-        print(self.size)
 
         #Making the Network
         self.brain = net.NeuralNetwork(info)
@@ -27,6 +26,8 @@ class ChrisBrain:
         #Stroing filepath for parsing
         self.filePath = filePath
 
+        #Setting flag
+        self.verbose = verboseFlag
     
     # Train the network
     def fit(self, data, target, validation, valTarget, learningRate, epochs):
@@ -36,17 +37,19 @@ class ChrisBrain:
 
         valBatch = self.brain.makeBatches(validation)[0]
         valTargetBatch = self.brain.makeBatches(valTarget)[0]
+    
+        if(self.verbose):
+            print("Input data fed into systen: \n", dataBatch)
+            print("\n")
 
         #Training 
         for epoch in range(epochs):
-
             for sampleBatch, sampleTarget in zip(dataBatch, targetBatch):
                 #Setting the batch size
                 self.brain.updateBatchSize(sampleBatch.shape[0])
 
-                print("State: ", sampleBatch.shape)
                 #Forward pass
-                loss = self.brain.forward(sampleBatch, sampleTarget)
+                loss, output = self.brain.forward(sampleBatch, sampleTarget)
 
                 #Backward pass
                 self.brain.backward(learningRate, sampleTarget)
@@ -57,12 +60,21 @@ class ChrisBrain:
                 self.brain.updateBatchSize(valBatch.shape[0])
 
                 #Validation
-                validationLoss = self.brain.forward(valBatch, valTargetBatch)
+                validationLoss, outValidation = self.brain.forward(valBatch, valTargetBatch)
                 self.validationLoss.append(validationLoss)
-                #self.validationLoss.append(0)
 
-                #Verbose
-                #self.verbose()
+                #Save target for verbose
+                targetVerbose = sampleTarget
+
+                if(self.verbose):
+                    print("Loss at current batch was: ", loss)
+
+            if(self.verbose):
+                print("Outout for epoch: ", epoch, " was: " )
+                print(output)
+
+                print("Target was: ")
+                print(targetVerbose)
 
         self.visulizer.drawLoss(self.lossData, self.validationLoss)
 
