@@ -1,0 +1,6 @@
+GLOBALS
+loss:CrossEntropy lrate:0.001 wreg:0.001 wrt:L3 batchSize:8
+LAYERS
+input:25
+size:9 act:Relu wr:Random
+type:softmax
