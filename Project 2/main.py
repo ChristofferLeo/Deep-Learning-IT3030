@@ -109,11 +109,9 @@ def predict_next_24_hours(model, day_1, day_2_features):
     predictions = []
 
     # Convert day_1 to a 3D tensor matching the model's expected input shape [1, seq_length, features]
-    # Assuming day_1 is 2D: [seq_length, features]
     current_sequence = day_1.unsqueeze(0)
 
     # Ensure day_2_features is also a 3D tensor [1, seq_length, features-1]
-    # Assuming day_2_features is 2D: [seq_length, features-1]
     day_2_features = day_2_features.unsqueeze(0)
 
     for i in range(day_2_features.shape[1]):  # Iterate through each step in day_2
@@ -124,12 +122,43 @@ def predict_next_24_hours(model, day_1, day_2_features):
 
             # Shift the sequence to the left to make room for the next features from day_2
             current_sequence = torch.roll(current_sequence, -1, dims=1)
-            # Update the first feature (previous y) of the last time step in the sequence with the predicted value
+            # Update the first feature (previous y) 
             current_sequence[:, -1, 0] = predicted_y
 
-            # Update the rest of the features of the last time step with the next features from day_2
-            if i < day_2_features.shape[1] - 1:  # Ensure we don't go out of bounds on the last iteration
+            # Update the rest of the features 
+            if i < day_2_features.shape[1] - 1:  
                 current_sequence[:, -1, 1:] = day_2_features[:, i, :]
+
+    return predictions
+
+def predict_next_24_CNN(model, day_1, day_2):
+    model.eval()  # Ensure the model is in evaluation mode
+    predictions = []
+
+    # Add a batch dimension and transpose to get [1, features, seq_length]
+    current_sequence = day_1.unsqueeze(0).transpose(1, 2)
+
+    # day_2_features is 2D: [seq_length, features-1], lacking the target feature
+    # Add a batch dimension and transpose to get [1, features-1, seq_length]
+    day_2_features = day_2.unsqueeze(0).transpose(1, 2)
+
+    for i in range(23):  # Predict the next 24 hours
+        with torch.no_grad():
+            # Make prediction based on the current sequence
+            predicted_y = model(current_sequence).squeeze()  # Adjust depending on model output shape
+            predictions.append(predicted_y.item())
+
+            # Roll the sequence to shift time steps
+            current_sequence = torch.roll(current_sequence, -1, dims=2)
+            
+            
+            # Insert the predicted value as the first feature in the last time step
+            current_sequence[:, 0, -1] = predicted_y  # Assuming the target is the first feature
+            
+            # If there are additional features from day_2 to add, do so here
+            if i < day_2_features.shape[2] - 1:  # Ensure we don't go out of bounds
+                # Update the features for the next time step, excluding the first feature (target)
+                current_sequence[:, 1:, -1] = day_2_features[:, :, i+1]
 
     return predictions
 
@@ -228,6 +257,31 @@ class LstmModel(torch.nn.Module):
         x = self.linear(x)
         return x
     
+class CnnModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        # Conv1d parameters: in_channels, out_channels, kernel_size
+        self.conv1 = torch.nn.Conv1d(in_channels=5, out_channels=64, kernel_size=23, padding='same')
+        self.relu1 = torch.nn.ReLU()
+        self.dropout1 = torch.nn.Dropout(p=0.2)
+        self.conv2 = torch.nn.Conv1d(in_channels=64, out_channels=32, kernel_size=24, padding='same')
+        self.relu2 = torch.nn.ReLU()
+        self.pool = torch.nn.AdaptiveAvgPool1d(1)
+        self.flatten = torch.nn.Flatten()
+        self.linear = torch.nn.Linear(32, 1)
+
+    def forward(self, x):
+        # PyTorch Conv1d expects input shape of (batch, channels, seq_len)
+        x = self.conv1(x)
+        x = self.relu1(x)
+        x = self.dropout1(x)
+        x = self.conv2(x)
+        x = self.relu2(x)
+        x = self.pool(x)
+        x = self.flatten(x)
+        x = self.linear(x)
+        return x
+    
 
 
 if __name__ == '__main__':
@@ -257,16 +311,17 @@ if __name__ == '__main__':
     #model, history = train(LSTM, X_train, y_train, X_val, y_val, save=True, save_model_path='./models/LSTM_n02.pth', save_history_path='./models/LSTM_n02_history.pkl')
 
 
+    # X_train = X_train.transpose(1,2)
+    # X_val = X_val.transpose(1,2)
+    
+    # CNN = CnnModel()
+    # model, history = train(CNN, X_train, y_train, X_val, y_val, save=True, save_model_path='./models/CNN_n02.pth', save_history_path='./models/CNN_n02_history.pkl')
+
 
     ###############################
     ##        Predicting         ##
     ###############################
-
-    model = LstmModel()  
-    model.load_state_dict(torch.load('./models/LSTM_n01.pth'), strict=False)
-    model.eval() 
-
-    day = 2
+    day = 54
 
     day_1 = X_test[24*day]
     day_2 = X_test[24*(day+1)]
@@ -276,16 +331,33 @@ if __name__ == '__main__':
 
     day_2 = day_2[:,1:] ##Removing target at column nb 0
 
-    predictions = predict_next_24_hours(model, day_1, day_2)
 
-    observed = denormalize(observed, './mean_values/normalization_LSTM_2.pkl')
-    real_value = denormalize(real_value, './mean_values/normalization_LSTM_2.pkl')
-    predictions = denormalize(predictions, './mean_values/normalization_LSTM_2.pkl')
-    
-    print(np.array(real_value))
+    # model = LstmModel()  
+    # model.load_state_dict(torch.load('./models/LSTM_n01.pth'), strict=False)
+    # model.eval() 
 
-    error = np.abs(np.array(real_value) - np.array(predictions))
-    np.save('./data/error_lstm.npy', error)
+    # predictions = predict_next_24_hours(model, day_1, day_2)
+
+    # observed = denormalize(observed, './mean_values/normalization_LSTM_2.pkl')
+    # real_value = denormalize(real_value, './mean_values/normalization_LSTM_2.pkl')
+    # predictions = denormalize(predictions, './mean_values/normalization_LSTM_2.pkl')
+
+
+
+    # model = CnnModel()
+    # model.load_state_dict(torch.load('./models/CNN_n02.pth'), strict=False)
+
+    # predictions = predict_next_24_CNN(model, day_1, day_2)
+
+    # observed = denormalize(observed, './mean_values/normalization_LSTM_2.pkl')
+    # real_value = denormalize(real_value, './mean_values/normalization_LSTM_2.pkl')
+    # predictions = denormalize(predictions, './mean_values/normalization_LSTM_2.pkl')
+
+
+    # error = np.abs(np.array(real_value) - np.array(predictions))
+    # np.save('./data/error_CNN.npy', error)
+
+
 
 
     
