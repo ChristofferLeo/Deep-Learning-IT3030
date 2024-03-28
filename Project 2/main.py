@@ -11,148 +11,66 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 
-
-## Features dependign on areas
-area_1 = ['timestamp', 'NO1_consumption', 'NO1_temperature']
-area_2 = ['timestamp', 'NO2_consumption', 'NO2_temperature']
-
-fileName = 'consumption_and_temperatures.csv'
-
-
 #######################
 ##   Preparing data  ##
 #######################
-def read_data(filepath, features):
-    # This is the function we discussed earlier
-    data = pd.read_csv(filepath)
-    if all(column in data.columns for column in features):
-        selected_df = data[features]
-    else:
-        raise ValueError("One or more selected columns are not in the file")
-    return selected_df
-
-def split_timestamp(data, timestamp_column = 'timestamp'):
-    # Ensure the timestamp column is in datetime format
-    data[timestamp_column] = pd.to_datetime(data[timestamp_column], utc=True)
+def prepare_data(X, Y, mode='LSTM'):
     
-    # Calculate new features
-    data['time_of_day'] = data[timestamp_column].dt.hour 
-    data['day_of_week'] = data[timestamp_column].dt.weekday
-    data['day_of_year'] = data[timestamp_column].dt.dayofyear
-    
-    # Drop the original timestamp column
-    data.drop(columns=[timestamp_column], inplace=True)
+    if mode == 'LSTM':
+        # Convert data to PyTorch tensors
+        X_tensor = torch.tensor(X, dtype=torch.float)
+        Y_tensor = torch.tensor(Y, dtype=torch.float)
 
-    return data
-
-def normalize(data, save_path='normalization_LSTM_1.pkl'):
-    mean = data.mean()
-    std = data.std()
-    
-    normalized_data = (data - mean) / std
-
-    # Saving mean and std to a file
-    with open(save_path, 'wb') as f:
-        pickle.dump({'mean': mean, 'std': std}, f)
-    
-    return normalized_data
-
-
-
-def create_sequences(data, seq_length):
-    xs = []
-    ys = []
-    for i in range(len(data)-seq_length):
-        x = data.iloc[i:(i+seq_length), 1:]
-        y = data.iloc[i+seq_length, 0]
-        xs.append(x)
-        ys.append(y)
-    return np.array(xs), np.array(ys)
-    
-def split_data(X, y, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
-    # Ensure the split ratios sum to 1
-    assert train_ratio + val_ratio + test_ratio == 1
-    
-    # Calculate the indices for splitting
-    total_samples = X.shape[0]
-    train_end = int(total_samples * train_ratio)
-    val_end = train_end + int(total_samples * val_ratio)
-    
-    # Split the data
-    X_train = X[:train_end]
-    y_train = y[:train_end]
-    
-    X_val = X[train_end:val_end]
-    y_val = y[train_end:val_end]
-    
-    X_test = X[val_end:]
-    y_test = y[val_end:]
-    
-    return X_train, y_train, X_val, y_val, X_test, y_test
-
-
-
-
-def preprocessing(fileName, area, seq_length= 15, model_type='LSTM'):
-    # Reading from file
-    data = read_data(fileName, area)
-
-    # Getting time on right format
-    data = split_timestamp(data)
-
-    #Normalizing the data
-    data = normalize(data)
-
-    data = data.rename(columns={area[1]: 'target'})
-
-    if model_type == 'LSTM':
-        X, y = create_sequences(data, seq_length)
-        
-        # Split the data (adjust the split_data function or manually split here)
-        X_train, y_train, X_val, y_val, X_test, y_test = split_data(X, y)
-        
-        # Convert the datasets into PyTorch tensors
-        X_train = torch.Tensor(X_train)
-        y_train = torch.Tensor(y_train)
-        X_val = torch.Tensor(X_val)
-        y_val = torch.Tensor(y_val)
-        X_test = torch.Tensor(X_test)
-        y_test = torch.Tensor(y_test)
-
-        # Directly return the tensors for training, validation, and testing
-        return X_train, y_train, X_val, y_val, X_test, y_test
-    else:
-        # TODO: ADD CNN and (Transformer or feed-forward)
+    elif mode == 'OtherModel':
+        # Apply transformations specific to OtherModel
         pass
+    
+    return X_tensor, Y_tensor
 
+def denormalize(predictions, load_path='mean_values/normalization_LSTM_1.pkl'):
+    # Load the mean and std values
+    with open(load_path, 'rb') as f:
+        normalization_params = pickle.load(f)
+    mean = normalization_params['mean'][0]
+    std = normalization_params['std'][0]
+    
+    # Reverse the normalization process
+    denormalized_data = [p * std + mean for p in predictions]
 
+    return denormalized_data
 
 ####################
 ##    Training    ##
 ####################
-def train(model, X_train, y_train, X_val, y_val, epochs = 10, save=False, save_model_path=None, save_history_path=None):
+import torch
+import torch.optim as optim
+import torch.utils.data as data
+import pickle
+
+def train(model, X_train, y_train, X_val, y_val, epochs=10, save=False, save_model_path=None, save_history_path=None):
     optimizer = optim.Adam(model.parameters())
     loss_fn = torch.nn.MSELoss()
-    loader = data.DataLoader(data.TensorDataset(X_train, y_train), shuffle=True, batch_size=24)
+    train_loader = data.DataLoader(data.TensorDataset(X_train, y_train), shuffle=True, batch_size=24)
+    val_loader = data.DataLoader(data.TensorDataset(X_val, y_val), batch_size=24)
     history = {'train': {'mse': [], 'mae': []}, 'val': {'mse': [], 'mae': []}}
 
     for epoch in range(epochs):
         model.train()
         train_mse_accum = 0.0
         train_mae_accum = 0.0
-        for X_batch, y_batch in loader:
-            y_pred = model(X_batch)
-            y_pred = y_pred.squeeze()
-            loss = loss_fn(y_pred, y_batch)
+        for X_batch, y_batch in train_loader:
             optimizer.zero_grad()
+            y_pred = model(X_batch).squeeze()
+            loss = loss_fn(y_pred, y_batch)
             loss.backward()
             optimizer.step()
+            
             train_mse_accum += loss_fn(y_pred, y_batch).item() * X_batch.size(0)
             train_mae_accum += torch.abs(y_pred - y_batch).sum().item()
 
         train_mse = train_mse_accum / len(X_train)
         train_mae = train_mae_accum / len(X_train)
-
+        
         history['train']['mse'].append(train_mse)
         history['train']['mae'].append(train_mae)
 
@@ -161,26 +79,66 @@ def train(model, X_train, y_train, X_val, y_val, epochs = 10, save=False, save_m
         val_mse_accum = 0.0
         val_mae_accum = 0.0
         with torch.no_grad():
-            y_pred = model(X_val)
-            y_pred = y_pred.squeeze()
-            val_mse_accum += loss_fn(y_pred, y_val).item() * X_val.size(0)
-            val_mae_accum += torch.abs(y_pred - y_val).sum().item()
+            for X_batch, y_batch in val_loader:
+                y_pred = model(X_batch).squeeze()
+                val_mse_accum += loss_fn(y_pred, y_batch).item() * X_batch.size(0)
+                val_mae_accum += torch.abs(y_pred - y_batch).sum().item()
 
         val_mse = val_mse_accum / len(X_val)
         val_mae = val_mae_accum / len(X_val)
-
+        
         history['val']['mse'].append(val_mse)
         history['val']['mae'].append(val_mae)
 
-        print(f"Epoch {epoch} | train MSE {train_mse:.4f} | val MSE {val_mse:.4f} | train MAE: {train_mae:.4f} | val MAE {val_mae:.4f}")
+        print(f"Epoch {epoch} | Train MSE: {train_mse:.4f} | Val MSE: {val_mse:.4f} | Train MAE: {train_mae:.4f} | Val MAE: {val_mae:.4f}")
 
-    if save:
+    if save and save_model_path and save_history_path:
         torch.save(model.state_dict(), save_model_path)
-        pickle.dump(history, open(save_history_path, 'wb'))
-
-
+        with open(save_history_path, 'wb') as f:
+            pickle.dump(history, f)
 
     return model, history
+
+
+
+####################
+##  Predictions   ##
+####################
+def predict_next_24_hours(model, day_1, day_2_features):
+    model.eval()  # Ensure the model is in evaluation mode
+    predictions = []
+
+    # Convert day_1 to a 3D tensor matching the model's expected input shape [1, seq_length, features]
+    # Assuming day_1 is 2D: [seq_length, features]
+    current_sequence = day_1.unsqueeze(0)
+
+    # Ensure day_2_features is also a 3D tensor [1, seq_length, features-1]
+    # Assuming day_2_features is 2D: [seq_length, features-1]
+    day_2_features = day_2_features.unsqueeze(0)
+
+    for i in range(day_2_features.shape[1]):  # Iterate through each step in day_2
+        with torch.no_grad():
+            # Make prediction based on the current sequence
+            predicted_y = model(current_sequence).squeeze(-1)  # Model output assumed to be [1, 1]
+            predictions.append(predicted_y.item())
+
+            # Shift the sequence to the left to make room for the next features from day_2
+            current_sequence = torch.roll(current_sequence, -1, dims=1)
+            # Update the first feature (previous y) of the last time step in the sequence with the predicted value
+            current_sequence[:, -1, 0] = predicted_y
+
+            # Update the rest of the features of the last time step with the next features from day_2
+            if i < day_2_features.shape[1] - 1:  # Ensure we don't go out of bounds on the last iteration
+                current_sequence[:, -1, 1:] = day_2_features[:, i, :]
+
+    return predictions
+
+
+
+
+
+
+
 
 ####################
 ##     Plots      ##
@@ -210,6 +168,46 @@ def plot_train_losss(history):
     plt.tight_layout()
     plt.show()
 
+def plot_prediction(observed, real_values, predictions):
+    plt.figure(figsize=(10, 6))
+
+    # Plotting target values
+    plt.plot(observed, 'g-', label='Target Values')
+
+    # Plotting predicted values
+    plt.plot(range(len(observed), len(observed) + len(predictions)), predictions, 'rx', label='Predicted Values')
+
+    # Plotting real values with 'o' marker
+    plt.plot(range(len(observed), len(observed) + len(real_values)), real_values, markersize=5, marker='o', linestyle='None', label='Real Values')
+
+    plt.xlabel('Time Step')
+    plt.ylabel('Value')
+    plt.title('Target, Predicted, and Real Values Over Time')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+
+def plot_comparisons(observed, real_values, predictions, predictions_2):
+    plt.figure(figsize=(10, 6))
+
+    # Plotting target values
+    plt.plot(observed, 'g-', label='Target Values')
+
+    # Plotting predicted values
+    plt.plot(range(len(observed), len(observed) + len(predictions)), predictions, 'rx', label='Predicted')
+    plt.plot(range(len(observed), len(observed) + len(predictions_2)), predictions_2, 'yx', label='Predicted diffrent model')
+
+    # Plotting real values with 'o' marker
+    plt.plot(range(len(observed), len(observed) + len(real_values)), real_values, markersize=5, marker='o', linestyle='None', label='Real Values')
+
+    plt.xlabel('Time Step')
+    plt.ylabel('Value')
+    plt.title('Target, Predicted, and Real Values Over Time')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
 
 
 
@@ -219,9 +217,10 @@ def plot_train_losss(history):
 class LstmModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.lstm = torch.nn.LSTM(input_size=4, hidden_size=50, num_layers=2, batch_first=True)
+        self.lstm = torch.nn.LSTM(input_size=5, hidden_size=50, num_layers=2, batch_first=True)
         self.dropout = torch.nn.Dropout(p=0.2)
         self.linear = torch.nn.Linear(50, 1)
+        
     def forward(self, x):
         x, _ = self.lstm(x)
         x = x[:, -1, :]
@@ -230,11 +229,67 @@ class LstmModel(torch.nn.Module):
         return x
     
 
-X_train, y_train, X_val, y_val, X_test, y_test = preprocessing(fileName, area_1, 15)
 
-LSTM = LstmModel()
-model, history = train(LSTM, X_train, y_train, X_val, y_val, save=False, save_model_path='./models/LSTM_n01.pth', save_history_path='./models/LSTM_n01_history.pkl')
+if __name__ == '__main__':
+    ##Loading data from npy format
+    X_train = np.load('data/X_train.npy')
+    y_train = np.load('data/y_train.npy')
 
+    X_val = np.load('data/X_val.npy')
+    y_val = np.load('data/y_val.npy')
+
+    X_test = np.load('data/X_test.npy')
+    y_test = np.load('data/y_test.npy')
+    y_true = np.load('data/y_true.npy')
+
+
+    ###############################
+    ##         Training          ##
+    ###############################
+
+    ##Changing to LSTM format
+    X_train, y_train = prepare_data(X_train, y_train, mode='LSTM')
+    X_val, y_val = prepare_data(X_val, y_val, mode='LSTM')
+    X_test, y_test = prepare_data(X_test, y_test, mode='LSTM')
+
+
+    #LSTM = LstmModel()
+    #model, history = train(LSTM, X_train, y_train, X_val, y_val, save=True, save_model_path='./models/LSTM_n02.pth', save_history_path='./models/LSTM_n02_history.pkl')
+
+
+
+    ###############################
+    ##        Predicting         ##
+    ###############################
+
+    model = LstmModel()  
+    model.load_state_dict(torch.load('./models/LSTM_n01.pth'), strict=False)
+    model.eval() 
+
+    day = 2
+
+    day_1 = X_test[24*day]
+    day_2 = X_test[24*(day+1)]
+    
+    observed = day_1[:,0]
+    real_value = day_2[:,0]
+
+    day_2 = day_2[:,1:] ##Removing target at column nb 0
+
+    predictions = predict_next_24_hours(model, day_1, day_2)
+
+    observed = denormalize(observed, './mean_values/normalization_LSTM_2.pkl')
+    real_value = denormalize(real_value, './mean_values/normalization_LSTM_2.pkl')
+    predictions = denormalize(predictions, './mean_values/normalization_LSTM_2.pkl')
+    
+    print(np.array(real_value))
+
+    error = np.abs(np.array(real_value) - np.array(predictions))
+    np.save('./data/error_lstm.npy', error)
+
+
+    
+    #plot_prediction(observed, real_value, predictions)
 
 
 

@@ -6,5 +6,12 @@ error given time
 # Predictions 
 one step at the time
 full step
-    -> Save the roor and preds to file
+    -> Save the error and preds to file
         Repeat for every model
+
+
+# For each model done
+save
+    - Preds
+    - Error
+    - Loss 
