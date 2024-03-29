@@ -162,7 +162,37 @@ def predict_next_24_CNN(model, day_1, day_2):
 
     return predictions
 
+def predict_next_24_feed(model, day_1, day_2_features):
+    model.eval()  # Set model to evaluation mode
+    predictions = []
 
+    # Flatten day_1 data for the initial input
+    current_input = day_1.view(-1).unsqueeze(0)  # Flattening and adding batch dimension
+
+    for i in range(23):  # Predict the next 24 hours
+        with torch.no_grad():
+            predicted_y = model(current_input).squeeze(-1)
+            predictions.append(predicted_y.item())
+
+            # Update current_input for the next prediction:
+            if i < 23:  # For all but the last iteration
+                # Slide current_input to discard the earliest time step
+                current_input = current_input[:, 5:]  # Assuming 5 features per time step
+
+                # Add the new prediction and the next available features from day_2
+                # Note: We need to handle the missing target value in day_2_features
+                next_features = torch.cat((predicted_y.view(1, 1), day_2_features[i].view(1, -1)), dim=1)
+                current_input = torch.cat((current_input, next_features), dim=1)
+
+    return predictions
+
+def update_input_with_prediction(predicted_y, next_input_features):
+    # This function should create the new input array for the next prediction
+    # It needs to combine the predicted_y with the features from day_2
+    # The specific implementation will depend on how your features are structured and used by the model
+    # This is a placeholder for conceptual guidance
+    new_input = torch.tensor([predicted_y] + next_input_features.tolist()).unsqueeze(0)
+    return new_input
 
 
 
@@ -237,6 +267,45 @@ def plot_comparisons(observed, real_values, predictions, predictions_2):
     plt.grid(True)
     plt.show()
 
+def plot_error(array1, array2, array3):
+    # Assuming array1, array2, and array3 are numpy arrays with shape (23,)
+    
+    # Generate a sequence of 23 time steps
+    time_steps = np.arange(1, 24)
+    
+    plt.figure(figsize=(10, 6))
+    
+    # Plot each array
+    plt.plot(time_steps, array1, label='CNN', marker='o', linestyle='-', color='blue')
+    plt.plot(time_steps, array2, label='Feed forward', marker='x', linestyle='--', color='red')
+    plt.plot(time_steps, array3, label='LSTM', marker='s', linestyle='-.', color='green')
+    
+    # Adding some plot decorations
+    plt.title('Comparison of Three Arrays')
+    plt.xlabel('Time Step')
+    plt.ylabel('Value')
+    plt.legend()
+    plt.grid(True)
+    
+    plt.show()
+
+def plot_all_loss(loss1, loss2, loss3, labels=['Loss 1', 'Loss 2', 'Loss 3']):
+    plt.figure(figsize=(10, 6))
+
+    epochs = range(1, len(loss1) + 1)
+
+    plt.plot(epochs, loss1, label=labels[0], marker='o', linestyle='-', color='blue')
+    plt.plot(epochs, loss2, label=labels[1], marker='x', linestyle='--', color='red')
+    plt.plot(epochs, loss3, label=labels[2], marker='s', linestyle='-.', color='green')
+
+    plt.title('Comparison of Loss Curves')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.grid(True)
+
+    plt.show()
+
 
 
 
@@ -282,6 +351,19 @@ class CnnModel(torch.nn.Module):
         x = self.linear(x)
         return x
     
+class FeedForwardNet(nn.Module):
+    def __init__(self):
+        super(FeedForwardNet, self).__init__()
+        self.fc1 = nn.Linear(23*5, 128)  # Input layer
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(128, 64)  # Hidden layer
+        self.fc3 = nn.Linear(64, 1)    # Output layer for regression
+
+    def forward(self, x):
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.fc3(x)  # No activation, direct output for regression
+        return x
 
 
 if __name__ == '__main__':
@@ -317,11 +399,20 @@ if __name__ == '__main__':
     # CNN = CnnModel()
     # model, history = train(CNN, X_train, y_train, X_val, y_val, save=True, save_model_path='./models/CNN_n02.pth', save_history_path='./models/CNN_n02_history.pkl')
 
+    #print(y_val.shape)
+
+    # X_train = X_train.view(X_train.shape[0], -1)
+    # X_val = X_val.view(X_val.shape[0], -1)
+
+    # Forward = FeedForwardNet()
+    # model, history = train(Forward, X_train, y_train, X_val, y_val, save=True, save_model_path='./models/Feed_n02.pth', save_history_path='./models/Feed_n02_history.pkl')
+
+
 
     ###############################
     ##        Predicting         ##
     ###############################
-    day = 54
+    day = 100
 
     day_1 = X_test[24*day]
     day_2 = X_test[24*(day+1)]
@@ -342,6 +433,7 @@ if __name__ == '__main__':
     # real_value = denormalize(real_value, './mean_values/normalization_LSTM_2.pkl')
     # predictions = denormalize(predictions, './mean_values/normalization_LSTM_2.pkl')
 
+    # plot_prediction(observed, real_value, predictions)
 
 
     # model = CnnModel()
@@ -360,9 +452,62 @@ if __name__ == '__main__':
 
 
 
+    # day_1 = day_1.view(day_1.shape[0], -1)
+    # day_2 = day_2.view(day_2.shape[0], -1)
+
+    # model = FeedForwardNet()
+    # model.load_state_dict(torch.load('./models/Feed_n02.pth'), strict=False)
+
+    # predictions = predict_next_24_feed(model, day_1, day_2)
+
+    # observed = denormalize(observed, './mean_values/normalization_LSTM_2.pkl')
+    # real_value = denormalize(real_value, './mean_values/normalization_LSTM_2.pkl')
+    # predictions = denormalize(predictions, './mean_values/normalization_LSTM_2.pkl')
+
+    # error = np.abs(np.array(real_value) - np.array(predictions))
+    # np.save('./data/error_Feed.npy', error)
+
+
+
+
+
+    ########################
+    ###      Plots       ###
+    ########################
+
+    # Cnn_error = np.load('./data/error_CNN.npy')
+    # Feed_error = np.load('./data/error_Feed.npy')
+    # LSTM_error = np.load('./data/error_LSTM.npy')
+
+    # plot_error(Cnn_error, Feed_error, LSTM_error)
+
+
+    CNN_path = './models/CNN_n02_history.pkl'
+    Feed_path = './models/Feed_n02_history.pkl'
+    LSTM_path = './models/LSTM_n02_history.pkl'
+    LSTM_path_2 = './models/LSTM_n01_history.pkl'
+
+    with open(CNN_path, 'rb') as file:
+        CNN_history = pickle.load(file) 
     
-    #plot_prediction(observed, real_value, predictions)
+    with open(LSTM_path, 'rb') as file:
+        LSTM_history = pickle.load(file) 
+    
+    with open(LSTM_path_2, 'rb') as file:
+        LSTM_history_2 = pickle.load(file) 
+    
+    with open(Feed_path, 'rb') as file:
+        Feed_history = pickle.load(file) 
 
+    CNN_history = CNN_history['train']['mae']
+    LSTM_history = LSTM_history['train']['mae']
+    Feed_history = Feed_history['train']['mae']
+    labels = ['CNN', 'LSTM', 'Feed Forward']
 
+    print(CNN_history)
 
+    plot_all_loss(CNN_history,LSTM_history, Feed_history, labels)
 
+    
+
+    
