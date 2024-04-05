@@ -105,7 +105,7 @@ def train(model, X_train, y_train, X_val, y_val, epochs=10, save=False, save_mod
 ##  Predictions   ##
 ####################
 def predict_next_24_hours(model, day_1, day_2_features):
-    model.eval()  # Ensure the model is in evaluation mode
+    model.eval()  
     predictions = []
 
     # Convert day_1 to a 3D tensor matching the model's expected input shape [1, seq_length, features]
@@ -117,7 +117,8 @@ def predict_next_24_hours(model, day_1, day_2_features):
     for i in range(day_2_features.shape[1]):  # Iterate through each step in day_2
         with torch.no_grad():
             # Make prediction based on the current sequence
-            predicted_y = model(current_sequence).squeeze(-1)  # Model output assumed to be [1, 1]
+            print(current_sequence)
+            predicted_y = model(current_sequence).squeeze(-1)  
             predictions.append(predicted_y.item())
 
             # Shift the sequence to the left to make room for the next features from day_2
@@ -131,21 +132,52 @@ def predict_next_24_hours(model, day_1, day_2_features):
 
     return predictions
 
+
+def predict_beta(model, day_1, day_2_features):
+    model.eval()
+    predictions = []
+
+    day_2_features = day_2_features.unsqueeze(0)  # Ensure it's a 3D tensor
+    day_1 = day_1.unsqueeze(0)
+
+    # Initialize the current sequence with the last part of day_1 and the first 'previous prediction' from day_2_features
+    current_sequence = torch.cat([day_1, day_2_features[:, :1, :]], dim=1)
+
+    #print(current_sequence)
+
+    for i in range(day_2_features.shape[1]):  
+        with torch.no_grad():
+            # Make prediction based on the current sequence
+            predicted_y = model(current_sequence).squeeze(-1) 
+            #print(predicted_y)
+            predictions.append(predicted_y.item())
+
+            # Prepare the next sequence for prediction
+            if i < day_2_features.shape[1] - 1:
+                # Update the updateing previous estimation feature in day_2_features for the next step
+                day_2_features[:, i + 1, 0] = predicted_y  
+
+
+                current_sequence = torch.cat([current_sequence[:, 1:, :], day_2_features[:, i+1:i+2, :]], dim=1)
+
+
+    return predictions
+
+
 def predict_next_24_CNN(model, day_1, day_2):
-    model.eval()  # Ensure the model is in evaluation mode
+    model.eval()  
     predictions = []
 
     # Add a batch dimension and transpose to get [1, features, seq_length]
     current_sequence = day_1.unsqueeze(0).transpose(1, 2)
 
-    # day_2_features is 2D: [seq_length, features-1], lacking the target feature
     # Add a batch dimension and transpose to get [1, features-1, seq_length]
     day_2_features = day_2.unsqueeze(0).transpose(1, 2)
 
     for i in range(23):  # Predict the next 24 hours
         with torch.no_grad():
             # Make prediction based on the current sequence
-            predicted_y = model(current_sequence).squeeze()  # Adjust depending on model output shape
+            predicted_y = model(current_sequence).squeeze()  
             predictions.append(predicted_y.item())
 
             # Roll the sequence to shift time steps
@@ -153,11 +185,11 @@ def predict_next_24_CNN(model, day_1, day_2):
             
             
             # Insert the predicted value as the first feature in the last time step
-            current_sequence[:, 0, -1] = predicted_y  # Assuming the target is the first feature
+            current_sequence[:, 0, -1] = predicted_y 
             
             # If there are additional features from day_2 to add, do so here
-            if i < day_2_features.shape[2] - 1:  # Ensure we don't go out of bounds
-                # Update the features for the next time step, excluding the first feature (target)
+            if i < day_2_features.shape[2] - 1:  
+                # Update the features for the next time step
                 current_sequence[:, 1:, -1] = day_2_features[:, :, i+1]
 
     return predictions
@@ -175,22 +207,18 @@ def predict_next_24_feed(model, day_1, day_2_features):
             predictions.append(predicted_y.item())
 
             # Update current_input for the next prediction:
-            if i < 23:  # For all but the last iteration
+            if i < 23:  
                 # Slide current_input to discard the earliest time step
                 current_input = current_input[:, 5:]  # Assuming 5 features per time step
 
                 # Add the new prediction and the next available features from day_2
-                # Note: We need to handle the missing target value in day_2_features
                 next_features = torch.cat((predicted_y.view(1, 1), day_2_features[i].view(1, -1)), dim=1)
                 current_input = torch.cat((current_input, next_features), dim=1)
 
     return predictions
 
 def update_input_with_prediction(predicted_y, next_input_features):
-    # This function should create the new input array for the next prediction
-    # It needs to combine the predicted_y with the features from day_2
-    # The specific implementation will depend on how your features are structured and used by the model
-    # This is a placeholder for conceptual guidance
+
     new_input = torch.tensor([predicted_y] + next_input_features.tolist()).unsqueeze(0)
     return new_input
 
@@ -268,8 +296,6 @@ def plot_comparisons(observed, real_values, predictions, predictions_2):
     plt.show()
 
 def plot_error(array1, array2, array3):
-    # Assuming array1, array2, and array3 are numpy arrays with shape (23,)
-    
     # Generate a sequence of 23 time steps
     time_steps = np.arange(1, 24)
     
@@ -376,7 +402,7 @@ if __name__ == '__main__':
 
     X_test = np.load('data/X_test.npy')
     y_test = np.load('data/y_test.npy')
-    y_true = np.load('data/y_true.npy')
+    
 
 
     ###############################
@@ -397,7 +423,7 @@ if __name__ == '__main__':
     # X_val = X_val.transpose(1,2)
     
     # CNN = CnnModel()
-    # model, history = train(CNN, X_train, y_train, X_val, y_val, save=True, save_model_path='./models/CNN_n02.pth', save_history_path='./models/CNN_n02_history.pkl')
+    # model, history = train(CNN, X_train, y_train, X_val, y_val, save=True, save_model_path='./models/CNN_n01.pth', save_history_path='./models/CNN_n01_history.pkl')
 
     #print(y_val.shape)
 
@@ -412,22 +438,23 @@ if __name__ == '__main__':
     ###############################
     ##        Predicting         ##
     ###############################
-    day = 100
+    day = 2
 
-    day_1 = X_test[24*day]
+    day_1 = X_test[24*day+1]
     day_2 = X_test[24*(day+1)]
     
     observed = day_1[:,0]
-    real_value = day_2[:,0]
+    real_value = day_2[:,0].clone()
 
-    day_2 = day_2[:,1:] ##Removing target at column nb 0
+    day_2 = day_2[:, 1:] #Removing first column
 
-
+    
     # model = LstmModel()  
     # model.load_state_dict(torch.load('./models/LSTM_n01.pth'), strict=False)
     # model.eval() 
 
     # predictions = predict_next_24_hours(model, day_1, day_2)
+
 
     # observed = denormalize(observed, './mean_values/normalization_LSTM_2.pkl')
     # real_value = denormalize(real_value, './mean_values/normalization_LSTM_2.pkl')
@@ -436,15 +463,17 @@ if __name__ == '__main__':
     # plot_prediction(observed, real_value, predictions)
 
 
-    # model = CnnModel()
-    # model.load_state_dict(torch.load('./models/CNN_n02.pth'), strict=False)
 
-    # predictions = predict_next_24_CNN(model, day_1, day_2)
+    model = CnnModel()
+    model.load_state_dict(torch.load('./models/CNN_n02.pth'), strict=False)
 
-    # observed = denormalize(observed, './mean_values/normalization_LSTM_2.pkl')
-    # real_value = denormalize(real_value, './mean_values/normalization_LSTM_2.pkl')
-    # predictions = denormalize(predictions, './mean_values/normalization_LSTM_2.pkl')
+    predictions = predict_next_24_CNN(model, day_1, day_2)
 
+    observed = denormalize(observed, './mean_values/normalization_LSTM_2.pkl')
+    real_value = denormalize(real_value, './mean_values/normalization_LSTM_2.pkl')
+    predictions = denormalize(predictions, './mean_values/normalization_LSTM_2.pkl')
+
+    plot_prediction(observed, real_value, predictions)
 
     # error = np.abs(np.array(real_value) - np.array(predictions))
     # np.save('./data/error_CNN.npy', error)
@@ -482,31 +511,31 @@ if __name__ == '__main__':
     # plot_error(Cnn_error, Feed_error, LSTM_error)
 
 
-    CNN_path = './models/CNN_n02_history.pkl'
-    Feed_path = './models/Feed_n02_history.pkl'
-    LSTM_path = './models/LSTM_n02_history.pkl'
-    LSTM_path_2 = './models/LSTM_n01_history.pkl'
+    # CNN_path = './models/CNN_n02_history.pkl'
+    # Feed_path = './models/Feed_n02_history.pkl'
+    # LSTM_path = './models/LSTM_n02_history.pkl'
+    # LSTM_path_2 = './models/LSTM_n01_history.pkl'
 
-    with open(CNN_path, 'rb') as file:
-        CNN_history = pickle.load(file) 
+    # with open(CNN_path, 'rb') as file:
+    #     CNN_history = pickle.load(file) 
     
-    with open(LSTM_path, 'rb') as file:
-        LSTM_history = pickle.load(file) 
+    # with open(LSTM_path, 'rb') as file:
+    #     LSTM_history = pickle.load(file) 
     
-    with open(LSTM_path_2, 'rb') as file:
-        LSTM_history_2 = pickle.load(file) 
+    # with open(LSTM_path_2, 'rb') as file:
+    #     LSTM_history_2 = pickle.load(file) 
     
-    with open(Feed_path, 'rb') as file:
-        Feed_history = pickle.load(file) 
+    # with open(Feed_path, 'rb') as file:
+    #     Feed_history = pickle.load(file) 
 
-    CNN_history = CNN_history['train']['mae']
-    LSTM_history = LSTM_history['train']['mae']
-    Feed_history = Feed_history['train']['mae']
-    labels = ['CNN', 'LSTM', 'Feed Forward']
+    # CNN_history = CNN_history['train']['mae']
+    # LSTM_history = LSTM_history['train']['mae']
+    # Feed_history = Feed_history['train']['mae']
+    # labels = ['CNN', 'LSTM', 'Feed Forward']
 
-    print(CNN_history)
+    # print(CNN_history)
 
-    plot_all_loss(CNN_history,LSTM_history, Feed_history, labels)
+    # plot_all_loss(CNN_history,LSTM_history, Feed_history, labels)
 
     
 

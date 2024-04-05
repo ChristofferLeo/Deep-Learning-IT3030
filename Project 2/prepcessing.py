@@ -71,7 +71,7 @@ def create_sequences(data, seq_length):
     
     return xs, ys, y_true
     
-def split_data(X, y, y_true, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
+def split_data(X, y, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
     # Ensure the split ratios sum to 1
     assert train_ratio + val_ratio + test_ratio == 1
     
@@ -90,27 +90,32 @@ def split_data(X, y, y_true, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
     
     X_test = X[val_end:]
     y_test = y[val_end:]
-    y_true_test = y_true[val_end:]
+
     
-    return X_train, y_train, X_val, y_val, X_test, y_test, y_true_test
+    return X_train, y_train, X_val, y_val, X_test, y_test
 
 
 def preprocessing(fileName, area, seq_length= 24):
+    print("Starting preprocessing data....")
+
     # Reading from file
     data = read_data(fileName, area)
+    print("Data read from file sucsessfully")
 
     # Getting time on right format
     data = split_timestamp(data)
 
     #Normalizing the data
     data = normalize(data)
+    print("Data normalized")
 
     data = data.rename(columns={area[1]: 'target'})
 
     X, y, y_true = create_sequences(data, seq_length)
     
     # Split the data
-    X_train, y_train, X_val, y_val, X_test, y_test, y_true_test = split_data(X, y, y_true)
+    X_train, y_train, X_val, y_val, X_test, y_test = split_data(X, y)
+    print("Data splitted")
 
     # Save X_train and y_train as .npy files
     np.save('data/X_train.npy', X_train)
@@ -121,16 +126,17 @@ def preprocessing(fileName, area, seq_length= 24):
 
     np.save('data/X_test.npy', X_test)
     np.save('data/y_test.npy', y_test)
-    np.save('data/y_true.npy', y_true_test)
+
+    print("Preprocessing data complete!")
 
 
 ## Features dependign on areas
 area_1 = ['timestamp', 'NO1_consumption', 'NO1_temperature']
 area_2 = ['timestamp', 'NO2_consumption', 'NO2_temperature']
 
-fileName = 'consumption_and_temperatures.csv'
+fileName = 'test_set.csv'
 
 
 
 ##Change this if other area is prefered
-preprocessing(fileName, area_2)
+preprocessing(fileName, area_1)
